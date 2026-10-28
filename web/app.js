@@ -30,6 +30,7 @@ let brush = 'W';
 let hover = -1;
 let showLabels = true;
 let unsure = new Set(); // von der Erkennung als unsicher gemeldete Felder
+let problemCells = new Set(); // Felder von Steinen, die es so nicht geben kann
 
 // ---------- 3D-Szene ----------
 
@@ -105,7 +106,11 @@ function drawSticker(i) {
     g.font = '500 26px system-ui, sans-serif';
     g.fillText(c, 64, 90);
   }
-  if (unsure.has(i)) {
+  if (problemCells.has(i)) {
+    g.strokeStyle = '#ff3030';
+    g.lineWidth = 14;
+    g.strokeRect(7, 7, 114, 114);
+  } else if (unsure.has(i)) {
     g.strokeStyle = arrowColor;
     g.lineWidth = 12;
     g.setLineDash([18, 10]);
@@ -299,6 +304,51 @@ meta.facelets.forEach((f, i) => {
   cells.push(cell);
 });
 
+// Fotos im selben Kreuz-Layout wie das Netz; die Raster-Felder darüber haben dieselben
+// Indizes wie das Netz (die Fotos sind nach der Erkennung richtig gedreht).
+const photoCells = [];
+const photoImgs = {};
+for (const face of meta.faces) {
+  const el = document.createElement('div');
+  el.className = 'photo-face';
+  const [col, row] = NET_POS[face];
+  el.style.gridColumn = col;
+  el.style.gridRow = row;
+  const img = document.createElement('img');
+  img.alt = '';
+  el.appendChild(img);
+  photoImgs[face] = img;
+  const grid = document.createElement('div');
+  grid.className = 'photo-grid';
+  el.appendChild(grid);
+  $('photoNet').appendChild(el);
+  meta.facelets.forEach((f, i) => {
+    if (f.face !== face) return;
+    const pc = document.createElement('div');
+    pc.className = 'pcell';
+    pc.innerHTML = `<span class="name">${f.name}</span>`;
+    pc.addEventListener('click', () => paint(i));
+    pc.addEventListener('mouseenter', () => setHover(i));
+    pc.addEventListener('mouseleave', () => setHover(-1));
+    grid.appendChild(pc);
+    photoCells[i] = pc;
+  });
+}
+
+function renderPhotos() {
+  const any = Object.keys(captures).length > 0;
+  $('photoBox').hidden = !any;
+  for (const face of meta.faces) {
+    const cap = captures[face];
+    const img = photoImgs[face];
+    img.hidden = !cap;
+    if (cap) {
+      if (img.getAttribute('src') !== cap.image) img.src = cap.image;
+      img.style.transform = `rotate(${cap.rot}deg)`;
+    }
+  }
+}
+
 for (const c of 'WYROBG') {
   const sw = document.createElement('div');
   sw.className = 'swatch' + (c === brush ? ' active' : '');
@@ -319,8 +369,11 @@ function drawCell(i) {
   cell.style.background = HEX[c] || '#555';
   cell.style.color = DARK_TEXT.has(c) ? '#000' : '#fff';
   cell.querySelector('.letter').textContent = c;
-  cell.classList.toggle('hl', hover === i);
-  cell.classList.toggle('unsure', unsure.has(i));
+  for (const el of [cell, photoCells[i]]) {
+    el.classList.toggle('hl', hover === i);
+    el.classList.toggle('unsure', unsure.has(i));
+    el.classList.toggle('problem', problemCells.has(i));
+  }
 }
 
 function setHover(i) {
@@ -344,6 +397,7 @@ function paint(i) {
 
 function render() {
   for (let i = 0; i < 54; i++) { drawSticker(i); drawCell(i); }
+  persist();
   $('stateInput').value = state;
   if (busy) {
     $('status').className = 'status';
@@ -356,13 +410,19 @@ function render() {
 async function updateStatus() {
   const el = $('status');
   try {
-    const { problems } = await api('/api/check', { state });
+    const checked = state;
+    const { problems, cells } = await api('/api/check', { state });
+    if (checked !== state) return; // inzwischen geändert, die neuere Prüfung zählt
+    const before = problemCells;
+    problemCells = new Set(cells);
+    for (const i of new Set([...before, ...problemCells])) { drawSticker(i); drawCell(i); }
     if (!problems.length) {
       el.className = 'status ok';
-      el.textContent = state === meta.solved ? '✓ Gelöst' : '✓ Farbverteilung stimmt';
+      el.textContent = state === meta.solved ? '✓ Gelöst' : '✓ Lösbar';
     } else {
       el.className = 'status bad';
-      el.innerHTML = 'Prüfung:<ul>' + problems.map((p) => `<li>${p}</li>`).join('') + '</ul>';
+      el.innerHTML = 'Nicht lösbar:<ul>' + problems.map((p) => `<li>${p}</li>`).join('') + '</ul>'
+        + (cells.length ? '<span class="small">Betroffene Felder sind rot umrandet.</span>' : '');
     }
   } catch (e) {
     showError(e);
@@ -791,6 +851,8 @@ function renderCapture() {
     });
     return tile;
   }));
+  renderPhotos();
+  persist();
   const done = CAPTURE_STEPS.every((s) => captures[s.face]);
   const wrong = CAPTURE_STEPS.filter((s) => captures[s.face]?.wrongCenter).map((s) => meta.colorNames[faceColor(s.face)]);
   $('recognize').disabled = !done;
@@ -843,8 +905,36 @@ $('recognize').addEventListener('click', async () => {
   }
 });
 
+// ---------- Stand im Browser merken ----------
+// Aufnahmen, Zustand und markierte Felder überleben so ein Neuladen der Seite.
+// Nur eine Bequemlichkeit: ohne Speicher (privates Fenster) startet die Seite leer.
+
+const STORE_KEY = 'rubik-solver-v1';
+
+function persist() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({ state, unsure: [...unsure], session, captures, camStep }));
+  } catch {
+    // Speicher nicht verfügbar
+  }
+}
+
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+  if (saved && /^[WYROBG]{54}$/.test(saved.state)) {
+    state = saved.state;
+    unsure = new Set(saved.unsure || []);
+    session = saved.session || session;
+    captures = saved.captures || {};
+    camStep = saved.camStep ?? 0;
+  }
+} catch {
+  // kaputter oder gesperrter Speicher: mit leerem Stand beginnen
+}
+
 resize();
 render();
+renderPhotos();
 
 // Testlinks: ?moves=R U R' führt Züge aus, &solve rechnet danach die Lösung,
 // &step=3 springt zum Zug, &speed=100 setzt das Tempo

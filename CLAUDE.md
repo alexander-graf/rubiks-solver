@@ -10,6 +10,9 @@ das Programm erkennt die Farben, zeigt den Würfel in 3D und berechnet die Lösu
     .venv/bin/python -m rubik            # öffnet http://127.0.0.1:8765/
     .venv/bin/python -m pytest -q
 
+Im Browser gespeicherter Stand (Aufnahmen, Zustand) wird beim Laden wiederhergestellt;
+Testlinks mit `?moves=` wirken auf diesen Stand. Headless-Chrome startet ohne Speicher.
+
 Testlinks: `?view=cam` öffnet die Kamera-Ansicht, `?moves=R U F2` führt Züge nach dem Laden aus, `&solve` rechnet danach
 die Lösung, `&step=3` springt zu Zug 3, `&speed=100` setzt das Tempo (ms je Vierteldrehung).
 
@@ -79,5 +82,8 @@ Alex' eigene Instanz. Die Kamera kann nur **ein** Prozess gleichzeitig nutzen.
 1. ✅ Modell, 3D, manuelle Eingabe, Zufallsverdrehung
 2. ✅ Löser (kociemba) mit Schritt-/Abspielmodus, Klartext + Pfeil je Zug
 3. ✅ Kamera: Live-Vorschau, 6 Fotos per Klick/Leertaste, Farberkennung
-4. Prüfnetz mit Foto-Vergleich, Lösbarkeitsprüfung (Parität, Ecken-/Kantendrehung)
+4. ✅ Prüfnetz: Fotos im Netz-Layout zum Vergleich, Lösbarkeit live mit betroffenen
+   Feldern (rot), Stand überlebt Neuladen (localStorage `rubik-solver-v1`)
 5. Erkennung mit echten Nachtfotos nachjustieren
+6. Idee (Alex, 2026-10-28): Trainingsmodus mit menschlicher Methode (Anfänger/CFOP,
+   v. a. F2L erklären) statt Kociemba – vorher eigene Fragerunde

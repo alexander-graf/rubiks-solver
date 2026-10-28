@@ -88,7 +88,16 @@ def solve(req: SolveRequest):
 
 @app.post("/api/check")
 def check(req: StateRequest):
-    return {"problems": cube.check(req.state)}
+    """Farbverteilung und Lösbarkeit; `cells` sind die Felder betroffener Steine."""
+    problems = cube.check(req.state)
+    if problems:
+        return {"problems": problems, "cells": [], "solvable": False}
+    issues = cube.piece_issues(req.state)
+    return {
+        "problems": [text for text, _ in issues],
+        "cells": sorted({i for _, cells in issues for i in cells}),
+        "solvable": not issues,
+    }
 
 
 # ---------- Kamera ----------

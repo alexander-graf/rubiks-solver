@@ -219,51 +219,60 @@ def _odd(perm: list[int]) -> bool:
     return odd
 
 
-def piece_problems(state: str) -> list[str]:
+def piece_issues(state: str) -> list[tuple[str, list[int]]]:
     """Ist die Stellung mit einem echten Würfel erreichbar? Leer = lösbar.
+    Liefert je Problem den Text und die betroffenen Felder (leer, wenn sich das
+    Problem keinem Stein zuordnen lässt, z. B. „eine Ecke ist verdreht“).
     Setzt eine stimmige Farbverteilung voraus (siehe `check`)."""
     names = lambda p: "/".join(FACELETS[i]["name"] for i in p)  # noqa: E731
-    problems = []
+    issues: list[tuple[str, list[int]]] = []
 
-    cperm, twist = [], 0
+    corners: dict[int, list[tuple[int, ...]]] = {}  # Stein -> Positionen
+    twist = 0
     for p in CORNERS:
         cols = tuple(state[i] for i in p)
         key = frozenset(cols)
         if key not in _SOLVED_CORNERS:
-            problems.append(f"Ecke {names(p)} hat Farben {'/'.join(cols)}, die es so nicht gibt")
+            issues.append((f"Ecke {names(p)} hat Farben {'/'.join(cols)}, die es so nicht gibt", list(p)))
             continue
         t = next(k for k in range(3) if cols[k] in "WY")
         if cols[t:] + cols[:t] != _SOLVED_CORNERS[key]:
-            problems.append(f"Ecke {names(p)} ist spiegelverkehrt ({'/'.join(cols)})")
+            issues.append((f"Ecke {names(p)} ist spiegelverkehrt ({'/'.join(cols)})", list(p)))
             continue
-        cperm.append(_CORNER_ID[key])
+        corners.setdefault(_CORNER_ID[key], []).append(p)
         twist += t
 
-    eperm, flip = [], 0
+    edges: dict[int, list[tuple[int, ...]]] = {}
+    flip = 0
     for p in EDGES:
         cols = tuple(state[i] for i in p)
         key = frozenset(cols)
         if key not in _SOLVED_EDGES:
-            problems.append(f"Kante {names(p)} hat Farben {'/'.join(cols)}, die es so nicht gibt")
+            issues.append((f"Kante {names(p)} hat Farben {'/'.join(cols)}, die es so nicht gibt", list(p)))
             continue
-        eperm.append(_EDGE_ID[key])
+        edges.setdefault(_EDGE_ID[key], []).append(p)
         flip += cols != _SOLVED_EDGES[key]
 
-    if problems:
-        return problems
-    if len(set(cperm)) != 8:
-        problems.append("Eine Ecke kommt doppelt vor")
-    if len(set(eperm)) != 12:
-        problems.append("Eine Kante kommt doppelt vor")
-    if problems:
-        return problems
+    for kind, found in (("Ecke", corners), ("Kante", edges)):
+        for positions in found.values():
+            if len(positions) > 1:
+                colors = "/".join(state[i] for i in positions[0])
+                where = " und ".join(names(p) for p in positions)
+                issues.append((f"{kind} {colors} kommt doppelt vor ({where})", [i for p in positions for i in p]))
+    if issues:
+        return issues
+
     if twist % 3:
-        problems.append("Eine Ecke ist verdreht")
+        issues.append(("Eine Ecke ist verdreht", []))
     if flip % 2:
-        problems.append("Eine Kante ist gekippt")
-    if _odd(cperm) != _odd(eperm):
-        problems.append("Zwei Steine sind vertauscht")
-    return problems
+        issues.append(("Eine Kante ist gekippt", []))
+    if _odd(list(corners)) != _odd(list(edges)):
+        issues.append(("Zwei Steine sind vertauscht", []))
+    return issues
+
+
+def piece_problems(state: str) -> list[str]:
+    return [text for text, _ in piece_issues(state)]
 
 
 # ---------- Ausrichtung der Fotos ----------

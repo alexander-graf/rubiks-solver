@@ -90,3 +90,20 @@ def test_orientation_search_undoes_random_photo_rotations():
         photos = "".join(cube.rotate_face(state[f * 9 : f * 9 + 9], turns[f]) for f in range(6))
         found = cube.orientations(photos)
         assert found and found[0][1] == state
+
+
+def test_issues_name_the_affected_cells():
+    # F2 Grün -> Rot macht U8/F2 zu einer zweiten W/R-Kante; R8 Rot -> Grün macht
+    # R8/D6 zu einer zweiten G/Y-Kante. Die Farbverteilung bleibt stimmig.
+    s = list(SOLVED)
+    s[idx("F2")] = "R"
+    s[idx("R8")] = "G"
+    issues = cube.piece_issues("".join(s))
+    assert sum("doppelt" in t for t, _ in issues) == 2
+    cells = {i for _, c in issues for i in c}
+    assert {idx("F2"), idx("U8"), idx("R8"), idx("D6")} <= cells
+
+
+def test_global_issue_has_no_cells():
+    issues = cube.piece_issues(swap(SOLVED, (idx("U8"), idx("F2"))))
+    assert issues == [("Eine Kante ist gekippt", [])]
