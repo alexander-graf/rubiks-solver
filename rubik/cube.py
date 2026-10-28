@@ -162,3 +162,139 @@ def to_kociemba(state: str) -> str:
     """Farbbuchstaben -> Seitenbuchstaben über die Mittelfelder (Eingabe für den Löser)."""
     center_to_face = {state[i * 9 + 4]: face for i, face in enumerate(FACES)}
     return "".join(center_to_face[c] for c in state)
+
+
+# ---------- Steine: Ecken und Kanten ----------
+#
+# Eine Ecke wird ab ihrem U/D-Feld im mathematisch positiven Drehsinn gelesen, eine
+# Kante ab ihrem U/D-Feld bzw. (in der mittleren Schicht) ab ihrem F/B-Feld. So ist
+# „verdreht“ (Ecke) bzw. „gekippt“ (Kante) für alle Positionen gleich definiert.
+
+_FACE_RANK = {"U": 0, "D": 0, "F": 1, "B": 1, "R": 2, "L": 2}
+
+
+def _det(a: Vec, b: Vec, c: Vec) -> int:
+    return (
+        a[0] * (b[1] * c[2] - b[2] * c[1])
+        - a[1] * (b[0] * c[2] - b[2] * c[0])
+        + a[2] * (b[0] * c[1] - b[1] * c[0])
+    )
+
+
+def _pieces() -> tuple[list[tuple[int, ...]], list[tuple[int, ...]]]:
+    by_pos: dict[Vec, list[int]] = {}
+    for i, f in enumerate(FACELETS):
+        by_pos.setdefault(f["pos"], []).append(i)
+    corners, edges = [], []
+    for idx in by_pos.values():
+        idx.sort(key=lambda i: _FACE_RANK[FACELETS[i]["face"]])
+        if len(idx) == 3:
+            a, b, c = idx
+            if _det(FACELETS[a]["normal"], FACELETS[b]["normal"], FACELETS[c]["normal"]) < 0:
+                b, c = c, b
+            corners.append((a, b, c))
+        elif len(idx) == 2:
+            edges.append(tuple(idx))
+    return corners, edges
+
+
+CORNERS, EDGES = _pieces()
+_SOLVED_CORNERS = {frozenset(SOLVED[i] for i in p): tuple(SOLVED[i] for i in p) for p in CORNERS}
+_SOLVED_EDGES = {frozenset(SOLVED[i] for i in p): tuple(SOLVED[i] for i in p) for p in EDGES}
+_CORNER_ID = {k: n for n, k in enumerate(_SOLVED_CORNERS)}
+_EDGE_ID = {k: n for n, k in enumerate(_SOLVED_EDGES)}
+
+
+def _odd(perm: list[int]) -> bool:
+    seen, odd = set(), False
+    for start in range(len(perm)):
+        length = 0
+        i = start
+        while i not in seen:
+            seen.add(i)
+            i = perm[i]
+            length += 1
+        if length and length % 2 == 0:
+            odd = not odd
+    return odd
+
+
+def piece_problems(state: str) -> list[str]:
+    """Ist die Stellung mit einem echten Würfel erreichbar? Leer = lösbar.
+    Setzt eine stimmige Farbverteilung voraus (siehe `check`)."""
+    names = lambda p: "/".join(FACELETS[i]["name"] for i in p)  # noqa: E731
+    problems = []
+
+    cperm, twist = [], 0
+    for p in CORNERS:
+        cols = tuple(state[i] for i in p)
+        key = frozenset(cols)
+        if key not in _SOLVED_CORNERS:
+            problems.append(f"Ecke {names(p)} hat Farben {'/'.join(cols)}, die es so nicht gibt")
+            continue
+        t = next(k for k in range(3) if cols[k] in "WY")
+        if cols[t:] + cols[:t] != _SOLVED_CORNERS[key]:
+            problems.append(f"Ecke {names(p)} ist spiegelverkehrt ({'/'.join(cols)})")
+            continue
+        cperm.append(_CORNER_ID[key])
+        twist += t
+
+    eperm, flip = [], 0
+    for p in EDGES:
+        cols = tuple(state[i] for i in p)
+        key = frozenset(cols)
+        if key not in _SOLVED_EDGES:
+            problems.append(f"Kante {names(p)} hat Farben {'/'.join(cols)}, die es so nicht gibt")
+            continue
+        eperm.append(_EDGE_ID[key])
+        flip += cols != _SOLVED_EDGES[key]
+
+    if problems:
+        return problems
+    if len(set(cperm)) != 8:
+        problems.append("Eine Ecke kommt doppelt vor")
+    if len(set(eperm)) != 12:
+        problems.append("Eine Kante kommt doppelt vor")
+    if problems:
+        return problems
+    if twist % 3:
+        problems.append("Eine Ecke ist verdreht")
+    if flip % 2:
+        problems.append("Eine Kante ist gekippt")
+    if _odd(cperm) != _odd(eperm):
+        problems.append("Zwei Steine sind vertauscht")
+    return problems
+
+
+# ---------- Ausrichtung der Fotos ----------
+
+
+def rotate_face(cells: str, turns: int) -> str:
+    """9 Felder zeilenweise, `turns` Vierteldrehungen im Uhrzeigersinn."""
+    for _ in range(turns % 4):
+        cells = "".join(cells[(2 - i % 3) * 3 + i // 3] for i in range(9))
+    return cells
+
+
+def rotate_index(i: int, turns: int) -> int:
+    """Wohin wandert Feld i (0–8) bei `turns` Vierteldrehungen im Uhrzeigersinn?"""
+    for _ in range(turns % 4):
+        r, c = divmod(i, 3)
+        i = c * 3 + (2 - r)
+    return i
+
+
+def orientations(state: str) -> list[tuple[dict[str, int], str]]:
+    """Alle Drehungen der 6 Fotos (je 0–3 Vierteldrehungen), die einen lösbaren Würfel
+    ergeben – verschiedene Zustände, die mit den wenigsten Drehungen zuerst."""
+    faces = [state[i * 9 : i * 9 + 9] for i in range(6)]
+    rotated = [[rotate_face(f, k) for k in range(4)] for f in faces]
+    found: dict[str, dict[str, int]] = {}
+    for combo in range(4**6):
+        turns = [(combo >> (2 * f)) & 3 for f in range(6)]
+        candidate = "".join(rotated[f][turns[f]] for f in range(6))
+        if candidate in found or piece_problems(candidate):
+            continue
+        found[candidate] = dict(zip(FACES, turns))
+    cost = lambda t: sum(min(k, 4 - k) for k in t.values())  # noqa: E731
+    return sorted(((t, s) for s, t in found.items()), key=lambda ts: cost(ts[0]))

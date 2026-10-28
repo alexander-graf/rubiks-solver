@@ -617,16 +617,11 @@ $('solve').addEventListener('click', async () => {
 
 // ---------- Kamera und Aufnahme ----------
 
-// Reihenfolge und Haltung: „oben“ ist die Seite, die im Bild oben liegen muss, damit
-// die 9 Felder in Kociemba-Lesereihenfolge ankommen.
-const CAPTURE_STEPS = [
-  { face: 'F', top: 'U', hint: 'Grün zur Kamera, Weiß oben' },
-  { face: 'R', top: 'U', hint: 'Würfel eine Vierteldrehung nach links: Rot zur Kamera, Weiß bleibt oben' },
-  { face: 'B', top: 'U', hint: 'Noch eine Vierteldrehung nach links: Blau zur Kamera, Weiß oben' },
-  { face: 'L', top: 'U', hint: 'Noch eine Vierteldrehung nach links: Orange zur Kamera, Weiß oben' },
-  { face: 'U', top: 'B', hint: 'Wieder Grün vorn, dann nach vorn kippen (Oberseite zu dir): Weiß zur Kamera, Blau oben' },
-  { face: 'D', top: 'F', hint: 'Wieder Grün vorn, dann nach hinten kippen: Gelb zur Kamera, Grün oben' },
-];
+// Reihenfolge der Aufnahmen. Wie herum eine Seite gehalten wird, ist egal: der Server
+// sucht die Drehung je Foto, bei der ein lösbarer Würfel herauskommt.
+const CAPTURE_STEPS = ['F', 'R', 'B', 'L', 'U', 'D'].map((face) => ({ face }));
+const CAPTURE_HINT = 'Wie herum, ist egal – das Programm dreht die Fotos selbst richtig. '
+  + 'Die Seite sollte das Quadrat ausfüllen.';
 
 let view = '3d';
 let camInfo = null;
@@ -760,7 +755,7 @@ async function capture() {
 function renderCapture() {
   const allDone = camStep < 0;
   $('captureBtn').disabled = allDone;
-  $('camTop').hidden = allDone;
+  $('camTop').hidden = true;
   $('recognize').classList.toggle('pulse', allDone);
   if (allDone) {
     $('camTitle').textContent = 'Alle 6 Seiten aufgenommen – jetzt rechts „Farben erkennen“ klicken';
@@ -770,9 +765,8 @@ function renderCapture() {
   } else {
     const step = CAPTURE_STEPS[camStep];
     const center = faceColor(step.face);
-    $('camTitle').innerHTML = `${camStep + 1}/6 · Seite mit ${colorChip(center)} in der Mitte zeigen, ${colorChip(faceColor(step.top))} zeigt nach oben`;
-    $('camHint').textContent = step.hint;
-    $('camTop').innerHTML = `▲ ${colorChip(faceColor(step.top))}`;
+    $('camTitle').innerHTML = `${camStep + 1}/6 · Seite mit ${colorChip(center)} in der Mitte zeigen`;
+    $('camHint').textContent = CAPTURE_HINT;
     $('camBox').style.setProperty('--expect', HEX[center]);
   }
 
@@ -818,15 +812,32 @@ $('recognize').addEventListener('click', async () => {
   const faces = Object.fromEntries(CAPTURE_STEPS.map((s) => [s.face, captures[s.face].cells]));
   try {
     const res = await api('/api/recognize', { faces, session });
+    // Gefundene Drehung übernehmen, damit Kacheln und Messwerte richtig herum stehen
+    for (const s of CAPTURE_STEPS) {
+      const cap = captures[s.face];
+      for (let k = 0; k < res.turns[s.face]; k++) cap.cells = rotateCells(cap.cells);
+      cap.rot = (cap.rot + 90 * res.turns[s.face]) % 360;
+    }
+    renderCapture();
     beginEdit();
     state = res.state;
     unsure = new Set(res.unsure);
     setView('3d');
     render();
     $('lastMoves').textContent = '';
-    $('solveMsg').textContent = unsure.size
-      ? `Erkannt. ${unsure.size} unsichere Felder sind markiert (gestrichelt, „?“) – bitte mit dem Würfel vergleichen und im Netz korrigieren.`
-      : 'Erkannt. Bitte kurz mit dem Würfel vergleichen, dann „Lösung berechnen“.';
+    const notes = [];
+    if (res.problems.length) {
+      notes.push('Bei keiner Drehung der Fotos ergibt sich ein gültiger Würfel – vermutlich ist eine '
+        + `Farbe falsch erkannt (${res.problems.slice(0, 2).join('; ')}). Bitte mit dem Würfel vergleichen.`);
+    } else {
+      notes.push('Erkannt.');
+      if (res.alternatives) notes.push(`Achtung: ${res.alternatives + 1} Drehungen der Fotos passen; die naheliegendste ist gewählt.`);
+    }
+    if (unsure.size) notes.push(`${unsure.size} unsichere Felder sind markiert (gestrichelt, „?“) – bitte prüfen und im Netz korrigieren.`);
+    notes.push('Dann „Lösung berechnen“.');
+    $('solveMsg').innerHTML = res.problems.length
+      ? `<span style="color:var(--danger)">${notes.join(' ')}</span>`
+      : notes.join(' ');
   } catch (e) {
     $('recMsg').innerHTML = `<span style="color:var(--danger)">${e.message}</span>`;
   }

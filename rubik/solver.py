@@ -57,10 +57,15 @@ def _kociemba(state: str, max_depth: int = 24) -> list[str]:
 
 
 def solve(state: str) -> list[str]:
-    problems = cube.check(state)
+    # Eigene Prüfung zuerst: genauere Meldungen, und die C-Bibliothek gibt bei manchen
+    # unmöglichen Ecken eine „Lösung“ aus, die gar nicht löst.
+    problems = cube.check(state) or cube.piece_problems(state)
     if problems:
-        raise SolveError("; ".join(problems))
-    return _kociemba(state)
+        raise SolveError("Diese Stellung ist nicht lösbar: " + "; ".join(problems))
+    moves = _kociemba(state)
+    if moves and cube.apply_moves(state, moves)[-1] != cube.SOLVED:
+        raise SolveError("Der Löser hat eine falsche Lösung geliefert – bitte Farben prüfen.")
+    return moves
 
 
 def _worker(state: str, max_depth: int, conn) -> None:

@@ -172,13 +172,36 @@ class RecognizeRequest(BaseModel):
 def recognize(req: RecognizeRequest):
     if sorted(req.faces) != sorted(cube.FACES) or any(len(v) != 9 for v in req.faces.values()):
         raise HTTPException(400, "Es braucht 9 Messwerte für jede der 6 Seiten")
-    state, unsure = colors.classify(req.faces)
+    raw, unsure = colors.classify(req.faces)
+    # Wie herum die Fotos gehalten wurden, ist egal: die Drehung je Foto ist die,
+    # bei der ein lösbarer Würfel herauskommt.
+    found = cube.orientations(raw)
+    if found:
+        turns, state = found[0]
+        problems = []
+    else:
+        turns, state = dict.fromkeys(cube.FACES, 0), raw
+        problems = cube.piece_problems(raw)
+    unsure = [
+        i // 9 * 9 + cube.rotate_index(i % 9, turns[cube.FACES[i // 9]]) for i in unsure
+    ]
     # Messwerte aufheben, um die Erkennung später mit echten Fotos nachzujustieren
     if req.session and SESSION_RE.match(req.session) and (CAPTURE_DIR / req.session).is_dir():
         (CAPTURE_DIR / req.session / "samples.json").write_text(
-            json.dumps({"faces": req.faces, "state": state, "unsure": unsure}, indent=1)
+            json.dumps(
+                {"faces": req.faces, "raw": raw, "turns": turns, "state": state,
+                 "unsure": unsure, "alternatives": len(found) - 1 if found else 0},
+                indent=1,
+            )
         )
-    return {"state": state, "unsure": unsure, "problems": cube.check(state)}
+    return {
+        "state": state,
+        "unsure": unsure,
+        "turns": turns,
+        # Mehrere gültige Drehungen sind selten; dann ist die mit den wenigsten gewählt
+        "alternatives": len(found) - 1 if found else 0,
+        "problems": problems,
+    }
 
 
 app.mount("/captures", StaticFiles(directory=CAPTURE_DIR), name="captures")

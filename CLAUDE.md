@@ -31,10 +31,18 @@ Der Server lädt Code **nicht** neu – nach Änderungen an `rubik/` neu starten
   im inneren halben Feld, Median der mittelhellen Pixel; beim weißen Mittelfeld nur
   ein Ring am Rand (Logo). Aufnahme = Median über 10 Bilder. **YUYV 640×480**, nicht
   MJPEG: die C270 meldet bei MJPEG jedes Bild als „Corrupt JPEG data“.
+- `cube.piece_problems` – Lösbarkeit auf Ebene der Steine (Ecken/Kanten vorhanden,
+  nicht spiegelverkehrt, Verdrehung, Kippung, Parität). **Läuft vor dem Löser**: die
+  C-Bibliothek `kociemba` gibt bei manchen unmöglichen Ecken eine „Lösung“ aus, die
+  gar nicht löst; `solver.solve` rechnet deshalb jede Lösung nach.
+- `cube.orientations` – probiert alle 4⁶ = 4096 Drehungen der 6 Fotos (≈ 0,1 s) und
+  behält die lösbaren. Darum ist egal, wie herum fotografiert wird. Mit Alex' erstem
+  echten Durchgang (5 von 6 Fotos verdreht) gab es genau einen Treffer.
 - `rubik/colors.py` – 54 Messwerte → Farben, je Farbe genau 9 (ungarische Methode),
   Bezug = Mittelfelder, iterativ nachgeführt, **Helligkeit je Foto mitgeschätzt**
   (Belichtungsautomatik!). Ohne das wurden Rot/Orange bei warmem Licht verwechselt.
-  „Unsicher“ = andere Farbe liegt < 8 Lab-Einheiten weiter weg.
+  „Unsicher“ = andere Farbe liegt < 8 Lab-Einheiten weiter weg. `guess` = grobe
+  Farbe über den Farbton, nur für die Live-Warnung „falsche Mitte“.
 - `captures/<Sitzung>/` – je Seite `X.jpg` (Ausschnitt) und `X_full.jpg`, dazu
   `samples.json` mit Messwerten und Ergebnis; zum Nachjustieren der Erkennung.
   Nicht im Git.
@@ -55,8 +63,10 @@ Alex' eigene Instanz. Die Kamera kann nur **ein** Prozess gleichzeitig nutzen.
 
 ## Entscheidungen (Grilling 2026-10-28)
 
-- 6 Fotos, geführte feste Reihenfolge, Kamera in der Hand, Live-Vorschau mit
-  3×3-Schablone, Auslösen per Leertaste, Mittel über ~10 Bilder.
+- 6 Fotos per Klick/Leertaste, Live-Vorschau mit 3×3-Schablone, Mittel über 10
+  Bilder. Kamera steht inzwischen auf einem Stativ, Alex hält nur den Würfel.
+- Die feste Haltung („Weiß oben“) hat in der Praxis nicht funktioniert – ersetzt
+  durch die automatische Drehungssuche. Geführt wird nur noch, welche Mitte kommt.
 - Licht ist schlecht (Zimmerlicht, nachts), Sticker leicht glänzend; das weiße
   Mittelfeld trägt einen bläulichen Logo-Sticker. Farben daher nicht über feste
   Grenzen, sondern alle 54 Felder so verteilen, dass jede Farbe genau 9× vorkommt;
