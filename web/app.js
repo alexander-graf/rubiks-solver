@@ -717,7 +717,7 @@ function camMessage(text) {
 }
 
 async function peek() {
-  if (capturing || view !== 'cam') return;
+  if (capturing || view !== 'cam' || camStep < 0) return;
   try {
     const step = CAPTURE_STEPS[camStep];
     const { cells, center } = await api(`/api/camera/peek?face=${step.face}`);
@@ -734,7 +734,7 @@ async function peek() {
 }
 
 async function capture() {
-  if (capturing || !camInfo) return;
+  if (capturing || !camInfo || camStep < 0) return;
   const step = CAPTURE_STEPS[camStep];
   capturing = true;
   $('captureBtn').disabled = true;
@@ -748,23 +748,33 @@ async function capture() {
       : '');
     // weiter zur nächsten noch fehlenden Seite – nicht, wenn die Mitte nicht passt
     const next = wrongCenter ? camStep : [1, 2, 3, 4, 5, 6].map((d) => (camStep + d) % 6).find((k) => !captures[CAPTURE_STEPS[k].face]);
-    if (next !== undefined) camStep = next;
+    camStep = next ?? -1; // -1: alle Seiten sind da, keine ausgewählt
   } catch (e) {
     camMessage(`Aufnahme fehlgeschlagen: ${e.message}`);
   }
   capturing = false;
-  $('captureBtn').disabled = false;
   $('captureBtn').textContent = 'Aufnehmen';
   renderCapture();
 }
 
 function renderCapture() {
-  const step = CAPTURE_STEPS[camStep];
-  const center = faceColor(step.face);
-  $('camTitle').innerHTML = `${camStep + 1}/6 · Seite mit ${colorChip(center)} in der Mitte zeigen, ${colorChip(faceColor(step.top))} zeigt nach oben`;
-  $('camHint').textContent = step.hint;
-  $('camTop').innerHTML = `▲ ${colorChip(faceColor(step.top))}`;
-  $('camBox').style.setProperty('--expect', HEX[center]);
+  const allDone = camStep < 0;
+  $('captureBtn').disabled = allDone;
+  $('camTop').hidden = allDone;
+  $('recognize').classList.toggle('pulse', allDone);
+  if (allDone) {
+    $('camTitle').textContent = 'Alle 6 Seiten aufgenommen – jetzt rechts „Farben erkennen“ klicken';
+    $('camHint').textContent = 'Zum Wiederholen einer Seite ihre Kachel anklicken.';
+    $('liveCheck').textContent = '';
+    $('camBox').style.setProperty('--expect', 'transparent');
+  } else {
+    const step = CAPTURE_STEPS[camStep];
+    const center = faceColor(step.face);
+    $('camTitle').innerHTML = `${camStep + 1}/6 · Seite mit ${colorChip(center)} in der Mitte zeigen, ${colorChip(faceColor(step.top))} zeigt nach oben`;
+    $('camHint').textContent = step.hint;
+    $('camTop').innerHTML = `▲ ${colorChip(faceColor(step.top))}`;
+    $('camBox').style.setProperty('--expect', HEX[center]);
+  }
 
   $('faceTiles').replaceChildren(...CAPTURE_STEPS.map((s, k) => {
     const cap = captures[s.face];

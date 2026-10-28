@@ -282,3 +282,10 @@ input:not([type]), input.mono {
 .live-check.ok { color: var(--ok); }
 .live-check.bad { color: var(--danger); }
 .tile.wrong { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
+
+/* Nach der 6. Aufnahme: der nächste Schritt soll ins Auge fallen */
+button.pulse { animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 140, 255, .7); }
+  50% { box-shadow: 0 0 0 6px rgba(79, 140, 255, 0); }
+}
