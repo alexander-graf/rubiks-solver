@@ -719,8 +719,15 @@ function camMessage(text) {
 async function peek() {
   if (capturing || view !== 'cam') return;
   try {
-    const { cells } = await api(`/api/camera/peek?face=${CAPTURE_STEPS[camStep].face}`);
+    const step = CAPTURE_STEPS[camStep];
+    const { cells, center } = await api(`/api/camera/peek?face=${step.face}`);
     [...$('liveCells').children].forEach((el, i) => { el.style.background = rgbCss(cells[i]); });
+    const expected = faceColor(step.face);
+    const ok = center === expected;
+    $('liveCheck').className = 'live-check ' + (ok ? 'ok' : 'bad');
+    $('liveCheck').innerHTML = ok
+      ? `Mitte erkannt: ${colorChip(center)} ✓`
+      : `Mitte erkannt: ${center === '?' ? '?' : colorChip(center)} ✗ – gesucht ist die Seite mit ${colorChip(expected)} in der Mitte`;
   } catch {
     // Vorschau-Messung ist nur ein Hinweis; Fehler zeigt der Strom bzw. die Aufnahme
   }
@@ -734,10 +741,13 @@ async function capture() {
   $('captureBtn').textContent = 'Halten …';
   try {
     const res = await api('/api/camera/capture', { face: step.face, session });
-    captures[step.face] = { cells: res.cells, image: res.image, rot: 0 };
-    camMessage('');
-    // weiter zur nächsten noch fehlenden Seite
-    const next = [1, 2, 3, 4, 5, 6].map((d) => (camStep + d) % 6).find((k) => !captures[CAPTURE_STEPS[k].face]);
+    const wrongCenter = res.center !== faceColor(step.face) ? res.center : null;
+    captures[step.face] = { cells: res.cells, image: res.image, rot: 0, wrongCenter };
+    camMessage(wrongCenter
+      ? `Die Mitte sieht nach ${meta.colorNames[wrongCenter] ?? '?'} aus, gesucht war ${meta.colorNames[faceColor(step.face)]}. Bitte die richtige Seite zeigen und neu aufnehmen.`
+      : '');
+    // weiter zur nächsten noch fehlenden Seite – nicht, wenn die Mitte nicht passt
+    const next = wrongCenter ? camStep : [1, 2, 3, 4, 5, 6].map((d) => (camStep + d) % 6).find((k) => !captures[CAPTURE_STEPS[k].face]);
     if (next !== undefined) camStep = next;
   } catch (e) {
     camMessage(`Aufnahme fehlgeschlagen: ${e.message}`);
@@ -751,7 +761,7 @@ async function capture() {
 function renderCapture() {
   const step = CAPTURE_STEPS[camStep];
   const center = faceColor(step.face);
-  $('camTitle').innerHTML = `${camStep + 1}/6 · Mitte ${colorChip(center)} · oben im Bild ${colorChip(faceColor(step.top))}`;
+  $('camTitle').innerHTML = `${camStep + 1}/6 · Seite mit ${colorChip(center)} in der Mitte zeigen, ${colorChip(faceColor(step.top))} zeigt nach oben`;
   $('camHint').textContent = step.hint;
   $('camTop').innerHTML = `▲ ${colorChip(faceColor(step.top))}`;
   $('camBox').style.setProperty('--expect', HEX[center]);
@@ -759,10 +769,10 @@ function renderCapture() {
   $('faceTiles').replaceChildren(...CAPTURE_STEPS.map((s, k) => {
     const cap = captures[s.face];
     const tile = document.createElement('div');
-    tile.className = 'tile' + (k === camStep ? ' current' : '');
+    tile.className = 'tile' + (k === camStep ? ' current' : '') + (cap?.wrongCenter ? ' wrong' : '');
     const c = faceColor(s.face);
     tile.innerHTML = `
-      <div class="tile-head"><span>${k + 1} · ${colorChip(c)}</span><span>${cap ? '✓' : ''}</span></div>
+      <div class="tile-head"><span>${k + 1} · ${colorChip(c)}</span><span>${cap ? (cap.wrongCenter ? '✗ falsche Seite?' : '✓') : ''}</span></div>
       <div class="tile-body">${cap
         ? `<div class="mini">${cap.cells.map((v) => `<span style="background:${rgbCss(v)}"></span>`).join('')}</div>
            <img src="${cap.image}" style="transform:rotate(${cap.rot}deg)" alt="">
@@ -778,8 +788,11 @@ function renderCapture() {
     return tile;
   }));
   const done = CAPTURE_STEPS.every((s) => captures[s.face]);
+  const wrong = CAPTURE_STEPS.filter((s) => captures[s.face]?.wrongCenter).map((s) => meta.colorNames[faceColor(s.face)]);
   $('recognize').disabled = !done;
-  $('recMsg').textContent = done ? '' : `${Object.keys(captures).length} von 6 Seiten aufgenommen`;
+  $('recMsg').innerHTML = wrong.length
+    ? `<span style="color:var(--danger)">Mitte passt nicht bei: ${wrong.join(', ')} – Kachel anklicken und neu aufnehmen.</span>`
+    : done ? '' : `${Object.keys(captures).length} von 6 Seiten aufgenommen`;
 }
 
 $('captureBtn').addEventListener('click', capture);

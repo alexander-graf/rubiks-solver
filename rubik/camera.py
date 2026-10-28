@@ -20,8 +20,10 @@ import numpy as np
 BOX_FRACTION = 0.7
 # Gemessen wird nur das Innere jedes Felds, damit die schwarzen Ränder nicht stören
 INNER = 0.5
-# Beim weißen Mittelfeld klebt ein Logo; dort nur einen Ring am Rand messen
-RING = (0.6, 0.85)
+# Beim weißen Mittelfeld klebt ein Logo. Dort zählt nur das hellste Drittel der Pixel
+# (das Logo ist dunkler als Weiß). Ein Ring am Rand des Felds traf bei nicht ganz
+# ausgefülltem Quadrat den schwarzen Rand – die orange Mitte wurde so dunkelrot.
+WHITE_CENTER = 0.7
 
 
 class CameraError(RuntimeError):
@@ -45,7 +47,7 @@ def _robust_color(pixels: np.ndarray) -> np.ndarray:
     return np.median(keep, axis=0)
 
 
-def sample_cells(frame: np.ndarray, ring_center: bool = False) -> np.ndarray:
+def sample_cells(frame: np.ndarray, white_center: bool = False) -> np.ndarray:
     """9 RGB-Werte (zeilenweise) aus dem BGR-Bild."""
     h, w = frame.shape[:2]
     x0, y0, size = box(w, h)
@@ -55,18 +57,14 @@ def sample_cells(frame: np.ndarray, ring_center: bool = False) -> np.ndarray:
         r, c = divmod(i, 3)
         cx = x0 + (c + 0.5) * cell
         cy = y0 + (r + 0.5) * cell
-        if ring_center and i == 4:
-            outer = int(cell * RING[1] / 2)
-            inner = int(cell * RING[0] / 2)
-            patch = frame[int(cy) - outer : int(cy) + outer, int(cx) - outer : int(cx) + outer]
-            mask = np.ones(patch.shape[:2], bool)
-            d = outer - inner
-            mask[d:-d, d:-d] = False
-            pixels = patch[mask]
+        half = int(cell * (WHITE_CENTER if white_center and i == 4 else INNER) / 2)
+        pixels = frame[int(cy) - half : int(cy) + half, int(cx) - half : int(cx) + half].reshape(-1, 3)
+        pixels = pixels.astype(float)
+        if white_center and i == 4:
+            v = pixels.max(axis=1)
+            out[i] = np.median(pixels[v >= np.percentile(v, 67)], axis=0)[::-1]
         else:
-            half = int(cell * INNER / 2)
-            pixels = frame[int(cy) - half : int(cy) + half, int(cx) - half : int(cx) + half].reshape(-1, 3)
-        out[i] = _robust_color(pixels.astype(float))[::-1]  # BGR -> RGB
+            out[i] = _robust_color(pixels)[::-1]  # BGR -> RGB
     return out
 
 
@@ -132,12 +130,12 @@ class Camera:
                 raise CameraError("Keine Bilder von der Kamera")
             return self._seq, self._frame
 
-    def capture(self, frames: int = 10, ring_center: bool = False) -> tuple[np.ndarray, np.ndarray]:
+    def capture(self, frames: int = 10, white_center: bool = False) -> tuple[np.ndarray, np.ndarray]:
         """Misst über mehrere Bilder (Median je Feld gegen Rauschen und Wackeln) und
         gibt die Messung samt letztem Bild zurück."""
         seq, frame = self.frame()
-        samples = [sample_cells(frame, ring_center)]
+        samples = [sample_cells(frame, white_center)]
         for _ in range(frames - 1):
             seq, frame = self.frame(after=seq)
-            samples.append(sample_cells(frame, ring_center))
+            samples.append(sample_cells(frame, white_center))
         return np.median(samples, axis=0), frame

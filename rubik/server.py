@@ -133,7 +133,8 @@ def camera_stream():
 def camera_peek(face: str = "F"):
     """Schnelle Messung am aktuellen Bild für die Live-Anzeige."""
     _, frame = _frame()
-    return {"cells": cam.sample_cells(frame, ring_center=face == "U").round().tolist()}
+    cells = cam.sample_cells(frame, white_center=face == "U")
+    return {"cells": cells.round().tolist(), "center": colors.guess(cells[4])}
 
 
 class CaptureRequest(BaseModel):
@@ -146,7 +147,7 @@ def camera_capture(req: CaptureRequest):
     if req.face not in cube.FACES or not SESSION_RE.match(req.session):
         raise HTTPException(400, "Ungültige Seite oder Sitzung")
     try:
-        cells, frame = camera.capture(ring_center=req.face == "U")
+        cells, frame = camera.capture(white_center=req.face == "U")
     except cam.CameraError as e:
         raise HTTPException(503, str(e)) from e
     folder = CAPTURE_DIR / req.session
@@ -157,6 +158,7 @@ def camera_capture(req: CaptureRequest):
     cv2.imwrite(str(folder / f"{req.face}.jpg"), frame[y : y + s, x : x + s])
     return {
         "cells": cells.round(1).tolist(),
+        "center": colors.guess(cells[4]),
         "image": f"/captures/{req.session}/{req.face}.jpg?t={time.time():.0f}",
     }
 

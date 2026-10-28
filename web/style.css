@@ -277,3 +277,8 @@ input:not([type]), input.mono {
   color: var(--arrow);
 }
 .cell.unsure { outline: 2px dashed var(--arrow); outline-offset: -2px; }
+
+.live-check { margin-top: 6px; font-size: 14px; }
+.live-check.ok { color: var(--ok); }
+.live-check.bad { color: var(--danger); }
+.tile.wrong { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }

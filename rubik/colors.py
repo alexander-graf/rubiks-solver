@@ -9,6 +9,8 @@ mehr ändert.
 
 from __future__ import annotations
 
+import colorsys
+
 import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -19,6 +21,28 @@ from .cube import FACE_COLORS, FACES
 WEIGHTS = np.array([0.5, 1.0, 1.0])
 # Liegt eine andere Farbe näher als das, gilt das Feld als unsicher (Lab-Einheiten)
 UNSURE_MARGIN = 8.0
+
+
+def guess(rgb) -> str:
+    """Grobe Farbe eines einzelnen Felds über den Farbton – nur für Warnungen
+    („falsche Seite?“), nicht für die eigentliche Erkennung. Grenzen aus echten
+    Fotos bei Zimmerlicht: Rot 0–6°, Orange 19–28°, Gelb 51–73°, Grün 154–169°,
+    Blau 205–213°, Weiß Sättigung < 0,15."""
+    h, s, _ = colorsys.rgb_to_hsv(*(np.asarray(rgb, float) / 255))
+    h *= 360
+    if s < 0.2:
+        return "W"
+    if h >= 330 or h < 12:
+        return "R"
+    if h < 40:
+        return "O"
+    if h < 110:
+        return "Y"
+    if h < 185:
+        return "G"
+    if h < 270:
+        return "B"
+    return "?"
 
 
 def rgb_to_lab(rgb: np.ndarray) -> np.ndarray:
