@@ -10,7 +10,10 @@ das Programm erkennt die Farben, zeigt den Würfel in 3D und berechnet die Lösu
     .venv/bin/python -m rubik            # öffnet http://127.0.0.1:8765/
     .venv/bin/python -m pytest -q
 
-`?moves=R U F2` an der URL führt Züge direkt nach dem Laden aus (zum Testen).
+Testlinks: `?moves=R U F2` führt Züge nach dem Laden aus, `&solve` rechnet danach
+die Lösung, `&step=3` springt zu Zug 3, `&speed=100` setzt das Tempo (ms je Vierteldrehung).
+
+Der Server lädt Code **nicht** neu – nach Änderungen an `rubik/` neu starten.
 
 ## Aufbau
 
@@ -18,11 +21,25 @@ das Programm erkennt die Farben, zeigt den Würfel in 3D und berechnet die Lösu
   Farbbuchstaben `W Y R O B G` in Kociemba-Reihenfolge U R F D L B, je Seite
   zeilenweise von außen gesehen. Weiß oben, Grün vorn, Rot rechts. Züge werden
   geometrisch gerechnet (Position + Normale je Feld, 90°-Drehung der Schicht).
+- `rubik/solver.py` – Paket `kociemba` (C-Erweiterung, < 10 ms, ~19–21 Züge) und der
+  deutsche Klartext je Zug. „Kürzere suchen“ startet Versuche mit sinkender Höchstlänge
+  in eigenen Prozessen (der C-Aufruf ist nicht abbrechbar). **Nur `forkserver`, nie
+  `fork`:** Der Server hat Threads; ein geforktes Kind blieb hängen, erbte den
+  Port-Socket und lief nach `kill` des Servers mit 100 % CPU weiter.
 - `rubik/server.py` – FastAPI; liefert unter `/api/meta` auch die Geometrie,
   damit die 3D-Ansicht dieselben Felder baut.
 - `web/` – Browser-Oberfläche, three.js r170 liegt lokal in `web/vendor/`.
   Der Browser animiert nur; nach jedem Zug werden die Steine zurückgesetzt und
   aus dem Zustand vom Server neu gefärbt.
+
+## Testen im Browser ohne Bildschirm
+
+Headless-Chrome mit `--virtual-time-budget` taugt hier nicht: unter virtueller Zeit
+laufen `requestAnimationFrame`-Animationen nicht verlässlich (leere oder halb
+gedrehte Bilder). Stattdessen echte Zeit über das DevTools-Protokoll (Node-Skript mit
+`--remote-debugging-port`, `Page.captureScreenshot`, `Runtime.evaluate` mit
+`awaitPromise`) – und Testserver auf einem anderen Port als 8765, dort läuft oft
+Alex' eigene Instanz.
 
 ## Entscheidungen (Grilling 2026-10-28)
 
@@ -38,7 +55,7 @@ das Programm erkennt die Farben, zeigt den Würfel in 3D und berechnet die Lösu
 ## Meilensteine
 
 1. ✅ Modell, 3D, manuelle Eingabe, Zufallsverdrehung
-2. Löser (RubikTwoPhase) mit Schritt-/Abspielmodus, Klartext + Pfeil je Zug
+2. ✅ Löser (kociemba) mit Schritt-/Abspielmodus, Klartext + Pfeil je Zug
 3. Kamera: geführte 6-Foto-Aufnahme, Farberkennung
 4. Prüfnetz mit Foto-Vergleich, Lösbarkeitsprüfung (Parität, Ecken-/Kantendrehung)
 5. Erkennung mit echten Nachtfotos nachjustieren

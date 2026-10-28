@@ -149,6 +149,110 @@ function animateMove(move, ms) {
   });
 }
 
+// ---------- Pfeil für den nächsten Zug ----------
+// Liegt auf der sichtbaren Vorderseite (bei B auf der Oberseite) und zeigt, wohin die
+// Felder der Schicht wandern. F bekommt einen Bogen. Werte gelten im Uhrzeigersinn.
+
+const ARROW_SPECS = {
+  R: { n: [0, 0, 1], c: [1, 0, 1.5], d: [0, 1, 0] },
+  L: { n: [0, 0, 1], c: [-1, 0, 1.5], d: [0, -1, 0] },
+  U: { n: [0, 0, 1], c: [0, 1, 1.5], d: [-1, 0, 0] },
+  D: { n: [0, 0, 1], c: [0, -1, 1.5], d: [1, 0, 0] },
+  B: { n: [0, 1, 0], c: [0, 1.5, -1], d: [-1, 0, 0] },
+  F: { n: [0, 0, 1], c: [0, 0, 1.5], d: [1, 0, 0] },
+};
+
+const arrowMat = new THREE.MeshBasicMaterial({
+  color: getComputedStyle(document.documentElement).getPropertyValue('--arrow').trim(),
+  side: THREE.DoubleSide,
+  transparent: true,
+  opacity: 0.92,
+  depthTest: false,
+});
+const arrowGroup = new THREE.Group();
+arrowGroup.renderOrder = 10;
+scene.add(arrowGroup);
+
+function straightArrowShape(len = 2.6, w = 0.09, hl = 0.5, hw = 0.3) {
+  const a = -len / 2, b = len / 2;
+  return new THREE.Shape([
+    [a, -w], [b - hl, -w], [b - hl, -hw], [b, 0], [b - hl, hw], [b - hl, w], [a, w],
+  ].map(([x, y]) => new THREE.Vector2(x, y)));
+}
+
+// Bogen um den Mittelpunkt; sweep < 0 = im Uhrzeigersinn
+function arcArrowShape(sweep, r = 1.0, w = 0.09, hw = 0.3, from = Math.PI * 0.9) {
+  const head = 0.5 / r * Math.sign(sweep);
+  const end = from + sweep;
+  const base = end - head;
+  const at = (ang, rad) => new THREE.Vector2(Math.cos(ang) * rad, Math.sin(ang) * rad);
+  const pts = [];
+  const N = 40;
+  for (let i = 0; i <= N; i++) pts.push(at(from + (base - from) * i / N, r + w));
+  pts.push(at(base, r + hw), at(end, r), at(base, r - hw));
+  for (let i = N; i >= 0; i--) pts.push(at(from + (base - from) * i / N, r - w));
+  return new THREE.Shape(pts);
+}
+
+function textSprite(text) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const g = canvas.getContext('2d');
+  g.fillStyle = arrowMat.color.getStyle();
+  g.beginPath();
+  g.arc(64, 64, 60, 0, Math.PI * 2);
+  g.fill();
+  g.fillStyle = '#fff';
+  g.font = '700 58px system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, 64, 68);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+  sprite.scale.set(0.55, 0.55, 1);
+  sprite.renderOrder = 11;
+  return sprite;
+}
+
+function showArrow(move) {
+  hideArrow();
+  const spec = ARROW_SPECS[move[0]];
+  const prime = move.endsWith("'");
+  const n = new THREE.Vector3(...spec.n);
+  let d = new THREE.Vector3(...spec.d);
+  if (prime) d.negate();
+  const side = new THREE.Vector3().crossVectors(n, d);
+  const center = new THREE.Vector3(...spec.c).addScaledVector(n, 0.03);
+
+  const shape = move[0] === 'F'
+    ? arcArrowShape((prime ? 1 : -1) * Math.PI * 1.3)
+    : straightArrowShape();
+  const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), arrowMat);
+  if (move[0] === 'F') d = new THREE.Vector3(1, 0, 0); // Bogen ist bereits gerichtet
+  mesh.quaternion.setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(d, new THREE.Vector3().crossVectors(n, d), n));
+  mesh.position.copy(center);
+  mesh.renderOrder = 10;
+  arrowGroup.add(mesh);
+
+  if (move.endsWith('2')) {
+    const label = textSprite('2×');
+    label.position.copy(center).addScaledVector(n, 0.3);
+    if (move[0] !== 'F') label.position.addScaledVector(side, 0.55);
+    arrowGroup.add(label);
+  }
+}
+
+function hideArrow() {
+  for (const obj of [...arrowGroup.children]) {
+    obj.geometry?.dispose();
+    obj.material?.map?.dispose();
+    if (obj.material !== arrowMat) obj.material?.dispose();
+    arrowGroup.remove(obj);
+  }
+}
+
 // 3D-Feld unter dem Mauszeiger auch im Netz markieren
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -218,7 +322,7 @@ function setHover(i) {
 
 function paint(i) {
   if (busy || i % 9 === 4 || state[i] === brush) return;
-  pushHistory();
+  beginEdit();
   state = state.slice(0, i) + brush + state.slice(i + 1);
   render();
 }
@@ -256,14 +360,17 @@ function showError(e) {
   $('lastMoves').innerHTML = `<span style="color:var(--danger)">${e.message}</span>`;
 }
 
-function pushHistory() {
+// Jede Änderung von Hand macht eine berechnete Lösung ungültig
+function beginEdit() {
+  clearSolution();
   history.push(state);
   if (history.length > 500) history.shift();
 }
 
 function setBusy(b) {
   busy = b;
-  document.querySelectorAll('.panel button').forEach((btn) => { btn.disabled = b; });
+  // Abspielen bleibt bedienbar, damit man jederzeit anhalten kann
+  document.querySelectorAll('.panel button:not(#play)').forEach((btn) => { btn.disabled = b; });
 }
 
 const speed = () => Number($('speed').value);
@@ -278,7 +385,7 @@ async function runMoves(text, ms = speed()) {
   }
   const { moves, states } = result;
   if (!moves.length) return;
-  pushHistory();
+  beginEdit();
   setBusy(true);
   $('lastMoves').textContent = moves.join(' ');
   for (let k = 0; k < moves.length; k++) {
@@ -323,6 +430,7 @@ $('scramble').addEventListener('click', async () => {
 $('undo').addEventListener('click', undo);
 function undo() {
   if (busy || !history.length) return;
+  clearSolution();
   state = history.pop();
   $('lastMoves').textContent = '';
   render();
@@ -330,7 +438,7 @@ function undo() {
 
 $('reset').addEventListener('click', () => {
   if (busy || state === meta.solved) return;
-  pushHistory();
+  beginEdit();
   state = meta.solved;
   $('lastMoves').textContent = '';
   render();
@@ -342,7 +450,7 @@ $('stateForm').addEventListener('submit', (e) => {
   if (!/^[WYROBG]{54}$/.test(s)) {
     return showError(new Error('Zustand braucht genau 54 Buchstaben aus W Y R O B G'));
   }
-  pushHistory();
+  beginEdit();
   state = s;
   render();
 });
@@ -364,16 +472,149 @@ document.addEventListener('keydown', (e) => {
   if (e.target.closest('input, textarea') || e.altKey || e.metaKey) return;
   if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); return undo(); }
   if (e.ctrlKey) return;
+  if (sol && (e.key === ' ' || e.key === 'ArrowRight')) { e.preventDefault(); return stepSolution(1); }
+  if (sol && (e.key === 'ArrowLeft' || e.key === 'Backspace')) { e.preventDefault(); return stepSolution(-1); }
   const face = e.key.toUpperCase();
   if ('URFDLB'.includes(face) && face.length === 1) runMoves(face + (e.shiftKey ? "'" : ''));
+});
+
+// ---------- Lösung ----------
+
+let sol = null; // { start, steps: [{move, text}], states, pos }
+let playing = false;
+let playToken = 0;
+
+const stateAt = (k) => (k === 0 ? sol.start : sol.states[k - 1]);
+const inverse = (m) => m[0] + { '': "'", "'": '', 2: '2' }[m.slice(1)];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function clearSolution() {
+  playing = false;
+  sol = null;
+  $('solveMsg').textContent = '';
+  renderSolution();
+}
+
+function renderSolution() {
+  const box = $('stepBox');
+  $('solution').hidden = !sol;
+  box.hidden = !sol;
+  if (!sol) return hideArrow();
+  const n = sol.steps.length;
+  $('chips').replaceChildren(...sol.steps.map((s, k) => {
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (k < sol.pos ? ' done' : k === sol.pos ? ' current' : '');
+    chip.textContent = s.move;
+    chip.title = s.text;
+    chip.addEventListener('click', () => jump(k));
+    return chip;
+  }));
+  $('prev').disabled = busy || sol.pos === 0;
+  $('next').disabled = busy || sol.pos === n;
+  $('play').textContent = playing ? '❚❚ Pause' : '▶ Abspielen';
+  $('play').disabled = !playing && sol.pos === n;
+  box.classList.toggle('done', sol.pos === n);
+  if (sol.pos < n) {
+    const step = sol.steps[sol.pos];
+    $('stepCount').textContent = sol.pos === 0
+      ? `Zug 1 von ${n} · Würfel halten: Weiß oben, Grün vorn`
+      : `Zug ${sol.pos + 1} von ${n}`;
+    $('stepMove').textContent = step.move;
+    $('stepText').textContent = step.text;
+    if (busy) hideArrow(); else showArrow(step.move);
+  } else {
+    $('stepCount').textContent = `${n} Züge`;
+    $('stepMove').textContent = '✓ Gelöst';
+    $('stepText').textContent = '';
+    hideArrow();
+  }
+}
+
+async function stepSolution(dir) {
+  if (!sol || busy) return;
+  if (dir > 0 ? sol.pos >= sol.steps.length : sol.pos <= 0) return;
+  const move = dir > 0 ? sol.steps[sol.pos].move : inverse(sol.steps[sol.pos - 1].move);
+  setBusy(true);
+  renderSolution();
+  await animateMove(move, speed());
+  sol.pos += dir;
+  state = stateAt(sol.pos);
+  setBusy(false);
+  render();
+  renderSolution();
+}
+
+function jump(k) {
+  if (busy || playing || !sol) return;
+  sol.pos = k;
+  state = stateAt(k);
+  render();
+  renderSolution();
+}
+
+async function togglePlay() {
+  if (!sol) return;
+  if (playing) {
+    playing = false;
+    return renderSolution();
+  }
+  const token = ++playToken;
+  playing = true;
+  renderSolution();
+  while (playing && token === playToken && sol && sol.pos < sol.steps.length) {
+    await sleep(speed() * 1.5); // Pfeil vor jedem Zug kurz stehen lassen
+    if (!playing || token !== playToken) return;
+    await stepSolution(1);
+  }
+  if (token === playToken) {
+    playing = false;
+    renderSolution();
+  }
+}
+
+$('prev').addEventListener('click', () => stepSolution(-1));
+$('next').addEventListener('click', () => stepSolution(1));
+$('play').addEventListener('click', togglePlay);
+
+$('solve').addEventListener('click', async () => {
+  if (busy) return;
+  const shorter = $('shorter').checked;
+  clearSolution();
+  setBusy(true);
+  $('solveMsg').textContent = shorter ? 'Suche kürzere Lösung (5 s) …' : 'Rechne …';
+  try {
+    const res = await api('/api/solve', { state, seconds: shorter ? 5 : 0 });
+    if (res.steps.length) {
+      sol = { start: state, steps: res.steps, states: res.states, pos: 0 };
+      $('solveMsg').textContent = `${res.steps.length} Züge`;
+    } else {
+      $('solveMsg').textContent = 'Der Würfel ist schon gelöst.';
+    }
+  } catch (e) {
+    $('solveMsg').innerHTML = `<span style="color:var(--danger)">${e.message}</span>`;
+  }
+  setBusy(false);
+  renderSolution();
 });
 
 resize();
 render();
 
-// Link wie ?moves=R U R' führt die Züge nach dem Laden aus
-const startMoves = new URLSearchParams(location.search).get('moves');
-if (startMoves) {
-  $('seqInput').value = startMoves;
-  runMoves(startMoves);
+// Testlinks: ?moves=R U R' führt Züge aus, &solve rechnet danach die Lösung,
+// &step=3 springt zum Zug, &speed=100 setzt das Tempo
+const params = new URLSearchParams(location.search);
+if (params.has('speed')) {
+  $('speed').value = params.get('speed');
+  $('speedVal').textContent = `${speed()} ms`;
+}
+if (params.get('moves')) {
+  $('seqInput').value = params.get('moves');
+  await runMoves(params.get('moves'));
+}
+if (params.has('solve')) {
+  $('solve').click();
+  if (params.has('step')) {
+    for (let i = 0; !sol && i < 200; i++) await sleep(50);
+    jump(Number(params.get('step')));
+  }
 }

@@ -15,11 +15,16 @@
 <body>
   <header>
     <h1>Rubik's Solver</h1>
-    <span class="milestone">Meilenstein 1 · Modell &amp; 3D</span>
+    <span class="milestone">Meilenstein 2 · Löser</span>
   </header>
 
   <main>
     <section class="view">
+      <div id="stepBox" class="step-box" hidden>
+        <div id="stepMove" class="step-move"></div>
+        <div id="stepCount" class="step-count"></div>
+        <div id="stepText" class="step-text"></div>
+      </div>
       <div id="scene"></div>
       <div class="view-bar">
         <label><input type="checkbox" id="labels3d" checked> Feldnamen in 3D</label>
@@ -30,6 +35,24 @@
     </section>
 
     <section class="panel">
+      <div class="card">
+        <h2>Lösung</h2>
+        <div class="row first">
+          <button id="solve">Lösung berechnen</button>
+          <label class="check"><input type="checkbox" id="shorter"> kürzere suchen (5 s)</label>
+        </div>
+        <div id="solution" hidden>
+          <div class="row">
+            <button id="prev" class="ghost">◀ Zurück</button>
+            <button id="next">Weiter ▶</button>
+            <button id="play" class="ghost">▶ Abspielen</button>
+          </div>
+          <div id="chips" class="chips"></div>
+          <p class="small">Leertaste oder → = weiter, ← = zurück · Zug anklicken springt dorthin</p>
+        </div>
+        <div id="solveMsg" class="small"></div>
+      </div>
+
       <div class="card">
         <h2>Züge</h2>
         <div id="moveButtons" class="move-grid"></div>

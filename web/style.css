@@ -134,3 +134,40 @@ input:not([type]), input.mono {
   main { grid-template-columns: 1fr; height: auto; }
   #scene { height: 60vh; }
 }
+
+/* ---------- Lösung ---------- */
+
+:root { --arrow: #ff2d95; }
+
+.row.first { margin-top: 0; align-items: center; }
+.check { display: flex; gap: 6px; align-items: center; color: var(--muted); }
+
+.step-box {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 18px;
+  align-items: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 18px;
+  margin-bottom: 10px;
+}
+.step-box[hidden] { display: none; }
+.step-move { grid-row: span 2; min-width: 90px; font: 700 52px/1.1 ui-monospace, monospace; color: var(--arrow); }
+.step-count { color: var(--muted); font-size: 13px; align-self: end; }
+.step-text { font-size: 20px; align-self: start; }
+.step-box.done .step-move { color: var(--ok); font-size: 30px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.chip {
+  font: 13px ui-monospace, monospace;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #2a2f3a;
+  cursor: pointer;
+  min-width: 30px;
+  text-align: center;
+}
+.chip.done { opacity: .4; }
+.chip.current { background: var(--arrow); color: #fff; font-weight: 700; }
