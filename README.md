@@ -35,3 +35,8 @@ OpenCV/V4L2 als `/dev/video0` angesprochen.
 | `rubik/colors.py` | Farberkennung (Zuordnung mit genau 9 je Farbe) |
 | `rubik/server.py` | FastAPI-Schnittstelle |
 | `web/` | Oberfläche im Browser, three.js für die 3D-Ansicht |
+
+## Lizenz
+
+MIT, siehe [LICENSE](LICENSE). `web/vendor/` enthält three.js (ebenfalls MIT,
+© three.js authors).
