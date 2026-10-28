@@ -6,6 +6,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const HEX = { W: '#f2f2f2', Y: '#ffd500', R: '#c41e3a', O: '#ff6a00', B: '#0051ba', G: '#009e60' };
 const DARK_TEXT = new Set(['W', 'Y', 'O']);
+const arrowColor = getComputedStyle(document.documentElement).getPropertyValue('--arrow').trim();
 const NET_POS = { U: [2, 1], L: [1, 2], F: [2, 2], R: [3, 2], B: [4, 2], D: [2, 3] };
 
 const $ = (id) => document.getElementById(id);
@@ -28,6 +29,7 @@ let busy = false;
 let brush = 'W';
 let hover = -1;
 let showLabels = true;
+let unsure = new Set(); // von der Erkennung als unsicher gemeldete Felder
 
 // ---------- 3D-Szene ----------
 
@@ -103,6 +105,13 @@ function drawSticker(i) {
     g.font = '500 26px system-ui, sans-serif';
     g.fillText(c, 64, 90);
   }
+  if (unsure.has(i)) {
+    g.strokeStyle = arrowColor;
+    g.lineWidth = 12;
+    g.setLineDash([18, 10]);
+    g.strokeRect(6, 6, 116, 116);
+    g.setLineDash([]);
+  }
   s.tex.needsUpdate = true;
   s.mesh.material.emissive.set(hover === i ? 0x3a6fd8 : 0x000000);
 }
@@ -163,7 +172,7 @@ const ARROW_SPECS = {
 };
 
 const arrowMat = new THREE.MeshBasicMaterial({
-  color: getComputedStyle(document.documentElement).getPropertyValue('--arrow').trim(),
+  color: arrowColor,
   side: THREE.DoubleSide,
   transparent: true,
   opacity: 0.92,
@@ -311,6 +320,7 @@ function drawCell(i) {
   cell.style.color = DARK_TEXT.has(c) ? '#000' : '#fff';
   cell.querySelector('.letter').textContent = c;
   cell.classList.toggle('hl', hover === i);
+  cell.classList.toggle('unsure', unsure.has(i));
 }
 
 function setHover(i) {
@@ -322,7 +332,10 @@ function setHover(i) {
 
 function paint(i) {
   if (busy || i % 9 === 4 || state[i] === brush) return;
+  const keep = new Set(unsure);
   beginEdit();
+  keep.delete(i); // wer ein Feld von Hand setzt, hat es geprüft
+  unsure = keep;
   state = state.slice(0, i) + brush + state.slice(i + 1);
   render();
 }
@@ -363,6 +376,7 @@ function showError(e) {
 // Jede Änderung von Hand macht eine berechnete Lösung ungültig
 function beginEdit() {
   clearSolution();
+  unsure = new Set();
   history.push(state);
   if (history.length > 500) history.shift();
 }
@@ -472,6 +486,10 @@ document.addEventListener('keydown', (e) => {
   if (e.target.closest('input, textarea') || e.altKey || e.metaKey) return;
   if (e.ctrlKey && e.key.toLowerCase() === 'z') { e.preventDefault(); return undo(); }
   if (e.ctrlKey) return;
+  if (view === 'cam') {
+    if (e.key === ' ') { e.preventDefault(); capture(); }
+    return;
+  }
   if (sol && (e.key === ' ' || e.key === 'ArrowRight')) { e.preventDefault(); return stepSolution(1); }
   if (sol && (e.key === 'ArrowLeft' || e.key === 'Backspace')) { e.preventDefault(); return stepSolution(-1); }
   const face = e.key.toUpperCase();
@@ -597,12 +615,207 @@ $('solve').addEventListener('click', async () => {
   renderSolution();
 });
 
+// ---------- Kamera und Aufnahme ----------
+
+// Reihenfolge und Haltung: „oben“ ist die Seite, die im Bild oben liegen muss, damit
+// die 9 Felder in Kociemba-Lesereihenfolge ankommen.
+const CAPTURE_STEPS = [
+  { face: 'F', top: 'U', hint: 'Grün zur Kamera, Weiß oben' },
+  { face: 'R', top: 'U', hint: 'Würfel eine Vierteldrehung nach links: Rot zur Kamera, Weiß bleibt oben' },
+  { face: 'B', top: 'U', hint: 'Noch eine Vierteldrehung nach links: Blau zur Kamera, Weiß oben' },
+  { face: 'L', top: 'U', hint: 'Noch eine Vierteldrehung nach links: Orange zur Kamera, Weiß oben' },
+  { face: 'U', top: 'B', hint: 'Wieder Grün vorn, dann nach vorn kippen (Oberseite zu dir): Weiß zur Kamera, Blau oben' },
+  { face: 'D', top: 'F', hint: 'Wieder Grün vorn, dann nach hinten kippen: Gelb zur Kamera, Grün oben' },
+];
+
+let view = '3d';
+let camInfo = null;
+let camStep = 0;
+let captures = {}; // Seite -> { cells: 9×RGB, image, rot }
+let session = newSession();
+let peekTimer = null;
+let capturing = false;
+
+function newSession() {
+  return new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+}
+
+const faceColor = (face) => meta.faceColors[face];
+const colorChip = (c) =>
+  `<span class="chip-color" style="background:${HEX[c]};color:${DARK_TEXT.has(c) ? '#000' : '#fff'}">${meta.colorNames[c]}</span>`;
+const rgbCss = ([r, g, b]) => `rgb(${r},${g},${b})`;
+
+// Felder um 90° im Uhrzeigersinn drehen (zeilenweise 3×3)
+const rotateCells = (cells) => [0, 1, 2, 3, 4, 5, 6, 7, 8].map((i) => cells[(2 - (i % 3)) * 3 + Math.floor(i / 3)]);
+
+for (let i = 0; i < 9; i++) {
+  const d = document.createElement('div');
+  d.className = 'cell-guide' + (i === 4 ? ' center' : '');
+  $('camBox').appendChild(d);
+}
+for (let i = 0; i < 9; i++) $('liveCells').appendChild(document.createElement('span'));
+
+document.querySelectorAll('.tab').forEach((tab) => {
+  tab.addEventListener('click', () => setView(tab.dataset.view));
+});
+
+function setView(v) {
+  if (v === view) return;
+  view = v;
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === v));
+  $('view3d').hidden = v !== '3d';
+  $('viewCam').hidden = v !== 'cam';
+  $('captureCard').hidden = v !== 'cam';
+  if (v === 'cam') {
+    startCamera();
+  } else {
+    stopCamera();
+    resize();
+  }
+}
+
+async function startCamera() {
+  renderCapture();
+  camMessage('');
+  try {
+    camInfo = await api('/api/camera/info');
+  } catch (e) {
+    return camMessage(`Kamera nicht verfügbar: ${e.message}`);
+  }
+  const [x, y, s] = camInfo.box;
+  Object.assign($('camBox').style, {
+    left: `${(x / camInfo.width) * 100}%`,
+    top: `${(y / camInfo.height) * 100}%`,
+    width: `${(s / camInfo.width) * 100}%`,
+    height: `${(s / camInfo.height) * 100}%`,
+  });
+  layoutCam();
+  $('camImg').src = `/api/camera/stream?t=${Date.now()}`;
+  clearInterval(peekTimer);
+  peekTimer = setInterval(peek, 400);
+}
+
+function stopCamera() {
+  clearInterval(peekTimer);
+  peekTimer = null;
+  $('camImg').removeAttribute('src'); // beendet den Strom; der Server gibt die Kamera nach 20 s frei
+}
+
+// Bild samt Schablone so groß wie möglich ins Feld einpassen, ohne Verzerrung
+function layoutCam() {
+  if (!camInfo) return;
+  const stage = $('camStage');
+  const k = Math.min(stage.clientWidth / camInfo.width, stage.clientHeight / camInfo.height);
+  $('camFrame').style.width = `${camInfo.width * k}px`;
+  $('camFrame').style.height = `${camInfo.height * k}px`;
+}
+new ResizeObserver(layoutCam).observe($('camStage'));
+
+function camMessage(text) {
+  $('camMsg').hidden = !text;
+  $('camMsg').textContent = text;
+}
+
+async function peek() {
+  if (capturing || view !== 'cam') return;
+  try {
+    const { cells } = await api(`/api/camera/peek?face=${CAPTURE_STEPS[camStep].face}`);
+    [...$('liveCells').children].forEach((el, i) => { el.style.background = rgbCss(cells[i]); });
+  } catch {
+    // Vorschau-Messung ist nur ein Hinweis; Fehler zeigt der Strom bzw. die Aufnahme
+  }
+}
+
+async function capture() {
+  if (capturing || !camInfo) return;
+  const step = CAPTURE_STEPS[camStep];
+  capturing = true;
+  $('captureBtn').disabled = true;
+  $('captureBtn').textContent = 'Halten …';
+  try {
+    const res = await api('/api/camera/capture', { face: step.face, session });
+    captures[step.face] = { cells: res.cells, image: res.image, rot: 0 };
+    camMessage('');
+    // weiter zur nächsten noch fehlenden Seite
+    const next = [1, 2, 3, 4, 5, 6].map((d) => (camStep + d) % 6).find((k) => !captures[CAPTURE_STEPS[k].face]);
+    if (next !== undefined) camStep = next;
+  } catch (e) {
+    camMessage(`Aufnahme fehlgeschlagen: ${e.message}`);
+  }
+  capturing = false;
+  $('captureBtn').disabled = false;
+  $('captureBtn').textContent = 'Aufnehmen';
+  renderCapture();
+}
+
+function renderCapture() {
+  const step = CAPTURE_STEPS[camStep];
+  const center = faceColor(step.face);
+  $('camTitle').innerHTML = `${camStep + 1}/6 · Mitte ${colorChip(center)} · oben im Bild ${colorChip(faceColor(step.top))}`;
+  $('camHint').textContent = step.hint;
+  $('camTop').innerHTML = `▲ ${colorChip(faceColor(step.top))}`;
+  $('camBox').style.setProperty('--expect', HEX[center]);
+
+  $('faceTiles').replaceChildren(...CAPTURE_STEPS.map((s, k) => {
+    const cap = captures[s.face];
+    const tile = document.createElement('div');
+    tile.className = 'tile' + (k === camStep ? ' current' : '');
+    const c = faceColor(s.face);
+    tile.innerHTML = `
+      <div class="tile-head"><span>${k + 1} · ${colorChip(c)}</span><span>${cap ? '✓' : ''}</span></div>
+      <div class="tile-body">${cap
+        ? `<div class="mini">${cap.cells.map((v) => `<span style="background:${rgbCss(v)}"></span>`).join('')}</div>
+           <img src="${cap.image}" style="transform:rotate(${cap.rot}deg)" alt="">
+           <button class="ghost rot" title="Um 90° drehen, falls falsch herum aufgenommen">⟳</button>`
+        : '<span class="empty">noch nicht aufgenommen</span>'}</div>`;
+    tile.addEventListener('click', () => { camStep = k; renderCapture(); });
+    tile.querySelector('.rot')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cap.cells = rotateCells(cap.cells);
+      cap.rot = (cap.rot + 90) % 360;
+      renderCapture();
+    });
+    return tile;
+  }));
+  const done = CAPTURE_STEPS.every((s) => captures[s.face]);
+  $('recognize').disabled = !done;
+  $('recMsg').textContent = done ? '' : `${Object.keys(captures).length} von 6 Seiten aufgenommen`;
+}
+
+$('captureBtn').addEventListener('click', capture);
+
+$('discard').addEventListener('click', () => {
+  captures = {};
+  camStep = 0;
+  session = newSession();
+  renderCapture();
+});
+
+$('recognize').addEventListener('click', async () => {
+  const faces = Object.fromEntries(CAPTURE_STEPS.map((s) => [s.face, captures[s.face].cells]));
+  try {
+    const res = await api('/api/recognize', { faces, session });
+    beginEdit();
+    state = res.state;
+    unsure = new Set(res.unsure);
+    setView('3d');
+    render();
+    $('lastMoves').textContent = '';
+    $('solveMsg').textContent = unsure.size
+      ? `Erkannt. ${unsure.size} unsichere Felder sind markiert (gestrichelt, „?“) – bitte mit dem Würfel vergleichen und im Netz korrigieren.`
+      : 'Erkannt. Bitte kurz mit dem Würfel vergleichen, dann „Lösung berechnen“.';
+  } catch (e) {
+    $('recMsg').innerHTML = `<span style="color:var(--danger)">${e.message}</span>`;
+  }
+});
+
 resize();
 render();
 
 // Testlinks: ?moves=R U R' führt Züge aus, &solve rechnet danach die Lösung,
 // &step=3 springt zum Zug, &speed=100 setzt das Tempo
 const params = new URLSearchParams(location.search);
+if (params.get('view') === 'cam') setView('cam');
 if (params.has('speed')) {
   $('speed').value = params.get('speed');
   $('speedVal').textContent = `${speed()} ms`;

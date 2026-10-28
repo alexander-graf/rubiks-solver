@@ -15,26 +15,66 @@
 <body>
   <header>
     <h1>Rubik's Solver</h1>
-    <span class="milestone">Meilenstein 2 · Löser</span>
+    <span class="milestone">Meilenstein 3 · Kamera</span>
   </header>
 
   <main>
     <section class="view">
-      <div id="stepBox" class="step-box" hidden>
-        <div id="stepMove" class="step-move"></div>
-        <div id="stepCount" class="step-count"></div>
-        <div id="stepText" class="step-text"></div>
+      <div class="tabs">
+        <button class="tab active" data-view="3d">3D-Würfel</button>
+        <button class="tab" data-view="cam">Kamera</button>
       </div>
-      <div id="scene"></div>
-      <div class="view-bar">
-        <label><input type="checkbox" id="labels3d" checked> Feldnamen in 3D</label>
-        <label>Tempo <input type="range" id="speed" min="60" max="900" value="300"> <span id="speedVal"></span></label>
-        <button id="resetView" class="ghost">Ansicht zurücksetzen</button>
+
+      <div id="view3d" class="pane">
+        <div id="stepBox" class="step-box" hidden>
+          <div id="stepMove" class="step-move"></div>
+          <div id="stepCount" class="step-count"></div>
+          <div id="stepText" class="step-text"></div>
+        </div>
+        <div id="scene"></div>
+        <div class="view-bar">
+          <label><input type="checkbox" id="labels3d" checked> Feldnamen in 3D</label>
+          <label>Tempo <input type="range" id="speed" min="60" max="900" value="300"> <span id="speedVal"></span></label>
+          <button id="resetView" class="ghost">Ansicht zurücksetzen</button>
+        </div>
+        <p class="hint">Ziehen dreht die Ansicht · Tasten U R F D L B drehen, mit Shift gegen den Uhrzeigersinn</p>
       </div>
-      <p class="hint">Ziehen dreht die Ansicht · Tasten U R F D L B drehen, mit Shift gegen den Uhrzeigersinn</p>
+
+      <div id="viewCam" class="pane" hidden>
+        <div class="cam-guide">
+          <div id="camTitle" class="cam-title"></div>
+          <div id="camHint" class="cam-hint"></div>
+        </div>
+        <div id="camStage" class="cam-stage">
+          <div id="camFrame" class="cam-frame">
+            <img id="camImg" alt="Kamerabild">
+            <div id="camBox" class="cam-box">
+              <div id="camTop" class="cam-top"></div>
+            </div>
+          </div>
+          <div id="camMsg" class="cam-msg" hidden></div>
+        </div>
+        <div class="view-bar">
+          <button id="captureBtn">Aufnehmen</button>
+          <span class="muted">oder Leertaste</span>
+          <span class="muted live-label">Live-Messung</span>
+          <div id="liveCells" class="mini"></div>
+        </div>
+        <p class="hint">Seite so halten, dass sie das Quadrat ausfüllt; die Mitte muss im mittleren Feld liegen.</p>
+      </div>
     </section>
 
     <section class="panel">
+      <div id="captureCard" class="card" hidden>
+        <h2>Aufnahme <small>Seite anklicken, um sie (neu) aufzunehmen</small></h2>
+        <div id="faceTiles" class="tiles"></div>
+        <div class="row">
+          <button id="recognize" disabled>Farben erkennen</button>
+          <button id="discard" class="ghost">Alle verwerfen</button>
+        </div>
+        <div id="recMsg" class="small"></div>
+      </div>
+
       <div class="card">
         <h2>Lösung</h2>
         <div class="row first">
