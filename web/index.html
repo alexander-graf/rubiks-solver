@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rubik's Solver</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": {
+        "three": "./vendor/three.module.js",
+        "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js"
+    } }
+  </script>
+</head>
+<body>
+  <header>
+    <h1>Rubik's Solver</h1>
+    <span class="milestone">Meilenstein 1 · Modell &amp; 3D</span>
+  </header>
+
+  <main>
+    <section class="view">
+      <div id="scene"></div>
+      <div class="view-bar">
+        <label><input type="checkbox" id="labels3d" checked> Feldnamen in 3D</label>
+        <label>Tempo <input type="range" id="speed" min="60" max="900" value="300"> <span id="speedVal"></span></label>
+        <button id="resetView" class="ghost">Ansicht zurücksetzen</button>
+      </div>
+      <p class="hint">Ziehen dreht die Ansicht · Tasten U R F D L B drehen, mit Shift gegen den Uhrzeigersinn</p>
+    </section>
+
+    <section class="panel">
+      <div class="card">
+        <h2>Züge</h2>
+        <div id="moveButtons" class="move-grid"></div>
+        <form id="seqForm" class="row">
+          <input id="seqInput" placeholder="z. B. R U R' U' F2" autocomplete="off" spellcheck="false">
+          <button type="submit">Ausführen</button>
+        </form>
+        <div class="row">
+          <button id="scramble">Zufällig verdrehen</button>
+          <button id="undo" class="ghost">Rückgängig</button>
+          <button id="reset" class="ghost">Gelöst</button>
+        </div>
+        <div id="lastMoves" class="last-moves"></div>
+      </div>
+
+      <div class="card">
+        <h2>Netz <small>Farbe wählen, dann Feld anklicken</small></h2>
+        <div id="palette" class="palette"></div>
+        <div id="net" class="net"></div>
+        <div id="status" class="status"></div>
+      </div>
+
+      <div class="card">
+        <h2>Zustand</h2>
+        <form id="stateForm" class="row">
+          <input id="stateInput" class="mono" spellcheck="false" autocomplete="off">
+          <button type="submit">Laden</button>
+        </form>
+        <p class="small">54 Farbbuchstaben in der Reihenfolge U R F D L B, je Seite zeilenweise.</p>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
